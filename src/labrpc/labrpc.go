@@ -2,7 +2,9 @@ package labrpc
 
 //
 // channel-based RPC, for 824 labs.
-// allows tests to disconnect RPC connections.
+//
+// simulates a network that can lose requests, lose replies,
+// delay messages, and entirely disconnect particular hosts.
 //
 // we will use the original labrpc.go to test your code for grading.
 // so, while you can modify this code to help you debug, please
@@ -76,8 +78,8 @@ type ClientEnd struct {
 }
 
 // send an RPC, wait for the reply.
-// the return value indicates success; false means the
-// server couldn't be contacted.
+// the return value indicates success; false means that
+// no reply was received from the server.
 func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bool {
 	req := reqMsg{}
 	req.endname = e.endname
