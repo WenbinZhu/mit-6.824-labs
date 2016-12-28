@@ -86,11 +86,11 @@ func check(t *testing.T, files []string) {
 }
 
 // Workers report back how many RPCs they have processed in the Shutdown reply.
-// Check that they processed at least 1 RPC.
+// Check that they processed at least 1 DoTask RPC.
 func checkWorker(t *testing.T, l []int) {
 	for _, tasks := range l {
 		if tasks == 0 {
-			t.Fatalf("Some worker didn't do any work\n")
+			t.Fatalf("A worker didn't do any work\n")
 		}
 	}
 }

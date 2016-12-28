@@ -13,12 +13,13 @@ import (
 type Worker struct {
 	sync.Mutex
 
-	name   string
-	Map    func(string, string) []KeyValue
-	Reduce func(string, []string) string
-	nRPC   int // protected by mutex
-	nTasks int // protected by mutex
-	l      net.Listener
+	name       string
+	Map        func(string, string) []KeyValue
+	Reduce     func(string, []string) string
+	nRPC       int // quit after this many RPCs; protected by mutex
+	nTasks     int // total tasks executed; protected by mutex
+	concurrent int // number of parallel DoTasks in this worker; mutex
+	l          net.Listener
 }
 
 // DoTask is called by the master when a new task is being scheduled on this
@@ -27,12 +28,27 @@ func (wk *Worker) DoTask(arg *DoTaskArgs, _ *struct{}) error {
 	fmt.Printf("%s: given %v task #%d on file %s (nios: %d)\n",
 		wk.name, arg.Phase, arg.TaskNumber, arg.File, arg.NumOtherPhase)
 
+	wk.Lock()
+	wk.nTasks += 1
+	wk.concurrent += 1
+	nc := wk.concurrent
+	wk.Unlock()
+
+	if nc > 2 {
+		// should never be more than 1, but allow some slack.
+		log.Fatal("Worker.DoTask: more than one DoTask in parallel\n")
+	}
+
 	switch arg.Phase {
 	case mapPhase:
 		doMap(arg.JobName, arg.TaskNumber, arg.File, arg.NumOtherPhase, wk.Map)
 	case reducePhase:
 		doReduce(arg.JobName, arg.TaskNumber, mergeName(arg.JobName, arg.TaskNumber), arg.NumOtherPhase, wk.Reduce)
 	}
+
+	wk.Lock()
+	wk.concurrent -= 1
+	wk.Unlock()
 
 	fmt.Printf("%s: %v task #%d done\n", wk.name, arg.Phase, arg.TaskNumber)
 	return nil
@@ -46,7 +62,6 @@ func (wk *Worker) Shutdown(_ *struct{}, res *ShutdownReply) error {
 	defer wk.Unlock()
 	res.Ntasks = wk.nTasks
 	wk.nRPC = 1
-	wk.nTasks-- // Don't count the shutdown RPC
 	return nil
 }
 
@@ -97,9 +112,6 @@ func RunWorker(MasterAddress string, me string,
 			wk.nRPC--
 			wk.Unlock()
 			go rpcs.ServeConn(conn)
-			wk.Lock()
-			wk.nTasks++
-			wk.Unlock()
 		} else {
 			break
 		}
