@@ -12,7 +12,7 @@ import (
 // scheduled on it.
 type DoTaskArgs struct {
 	JobName    string
-	File       string   // the file to process
+	File       string   // only for map, the input file
 	Phase      jobPhase // are we in mapPhase or reducePhase?
 	TaskNumber int      // this task's index in the current phase
 
@@ -30,7 +30,7 @@ type ShutdownReply struct {
 
 // RegisterArgs is the argument passed when a worker registers with the master.
 type RegisterArgs struct {
-	Worker string
+	Worker string // the worker's UNIX-domain socket name, i.e. its RPC address
 }
 
 // call() sends an RPC to the rpcname handler on server srv

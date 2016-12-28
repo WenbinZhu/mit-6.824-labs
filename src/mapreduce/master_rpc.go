@@ -16,7 +16,7 @@ func (mr *Master) Shutdown(_, _ *struct{}) error {
 	return nil
 }
 
-// startRPCServer staarts the Master's RPC server. It continues accepting RPC
+// startRPCServer starts the Master's RPC server. It continues accepting RPC
 // calls (Register in particular) for as long as the worker is alive.
 func (mr *Master) startRPCServer() {
 	rpcs := rpc.NewServer()

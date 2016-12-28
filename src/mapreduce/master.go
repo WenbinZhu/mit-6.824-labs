@@ -6,16 +6,16 @@ import (
 	"sync"
 )
 
-// Master holds all the state that the master needs to keep track of. Of
-// particular importance is registerChannel, the channel that notifies the
-// master of workers that have gone idle and are in need of new work.
+// Master holds all the state that the master needs to keep track of.
 type Master struct {
 	sync.Mutex
 
-	address         string
-	registerChannel chan string
-	doneChannel     chan bool
-	workers         []string // protected by the mutex
+	address     string
+	doneChannel chan bool
+
+	// protected by the mutex
+	newCond *sync.Cond // pulsed when a new worker added to workers[]
+	workers []string   // each worker's UNIX-domain socket name -- its RPC address
 
 	// Per-task information
 	jobName string   // Name of currently executing job
@@ -34,9 +34,7 @@ func (mr *Master) Register(args *RegisterArgs, _ *struct{}) error {
 	defer mr.Unlock()
 	debug("Register: worker %s\n", args.Worker)
 	mr.workers = append(mr.workers, args.Worker)
-	go func() {
-		mr.registerChannel <- args.Worker
-	}()
+	mr.newCond.Broadcast()
 	return nil
 }
 
@@ -45,13 +43,13 @@ func newMaster(master string) (mr *Master) {
 	mr = new(Master)
 	mr.address = master
 	mr.shutdown = make(chan struct{})
-	mr.registerChannel = make(chan string)
+	mr.newCond = sync.NewCond(mr)
 	mr.doneChannel = make(chan bool)
 	return
 }
 
 // Sequential runs map and reduce tasks sequentially, waiting for each task to
-// complete before scheduling the next.
+// complete before running the next.
 func Sequential(jobName string, files []string, nreduce int,
 	mapF func(string, string) []KeyValue,
 	reduceF func(string, []string) string,
@@ -79,10 +77,31 @@ func Sequential(jobName string, files []string, nreduce int,
 func Distributed(jobName string, files []string, nreduce int, master string) (mr *Master) {
 	mr = newMaster(master)
 	mr.startRPCServer()
-	go mr.run(jobName, files, nreduce, mr.schedule, func() {
-		mr.stats = mr.killWorkers()
-		mr.stopRPCServer()
-	})
+	go mr.run(jobName, files, nreduce,
+		func(phase jobPhase) {
+			// send schedule() existing and new registrations
+			// on this channel.
+			ch := make(chan string)
+			go func() {
+				i := 0
+				for {
+					mr.Lock()
+					if len(mr.workers) > i {
+						w := mr.workers[i]
+						go func() { ch <- w }()
+						i = i + 1
+					} else {
+						mr.newCond.Wait()
+					}
+					mr.Unlock()
+				}
+			}()
+			mr.schedule(phase, ch)
+		},
+		func() {
+			mr.stats = mr.killWorkers()
+			mr.stopRPCServer()
+		})
 	return
 }
 
