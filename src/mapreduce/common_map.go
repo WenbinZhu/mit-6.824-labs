@@ -4,7 +4,7 @@ import (
 	"hash/fnv"
 )
 
-// doMap does the job of a map worker: it reads one of the input files
+// doMap manages one map task: it reads one of the input files
 // (inFile), calls the user-defined map function (mapF) for that file's
 // contents, and partitions the output into nReduce intermediate files.
 func doMap(
@@ -14,18 +14,31 @@ func doMap(
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
 	mapF func(file string, contents string) []KeyValue,
 ) {
-	// TODO:
-	// You will need to write this function.
-	// You can find the filename for this map task's input to reduce task number
-	// r using reduceName(jobName, mapTaskNumber, r). The ihash function (given
-	// below doMap) should be used to decide which file a given key belongs into.
 	//
-	// The intermediate output of a map task is stored in the file
-	// system as multiple files whose name indicates which map task produced
-	// them, as well as which reduce task they are for. Coming up with a
-	// scheme for how to store the key/value pairs on disk can be tricky,
-	// especially when taking into account that both keys and values could
-	// contain newlines, quotes, and any other character you can think of.
+	// You will need to write this function.
+	//
+	// The intermediate output of a map task is stored as multiple
+	// files, one per destination reduce task. The file name includes
+	// both the map task number and the reduce task number. You can find
+	// the filename in which to write the intermediate output for reduce
+	// task number r using reduceName(jobName, mapTaskNumber, r). The
+	// ihash function (given below doMap) should be used to decide which
+	// reduce task a key should be given to.
+	//
+	// mapF() is the map function provided by the application. The first
+	// argument should be the input file name, though the map function
+	// typically ignores it. The second argument should be the entire
+	// input file contents. mapF() returns a slice containing the
+	// key/value pairs for reduce; see common.go for the definition of
+	// KeyValue.
+	//
+	// Look at Go's ioutil and os packages for functions to read
+	// and write files.
+	//
+	// Coming up with a scheme for how to format the key/value pairs on
+	// disk can be tricky, especially when taking into account that both
+	// keys and values could contain newlines, quotes, and any other
+	// character you can think of.
 	//
 	// One format often used for serializing data to a byte stream that the
 	// other end can correctly reconstruct is JSON. You are not required to
@@ -40,10 +53,11 @@ func doMap(
 	//     err := enc.Encode(&kv)
 	//
 	// Remember to close the file after you have written all the values!
+	//
 }
 
-func ihash(s string) uint32 {
+func ihash(s string) int {
 	h := fnv.New32a()
 	h.Write([]byte(s))
-	return h.Sum32()
+	return int(h.Sum32() & 0x7fffffff)
 }
