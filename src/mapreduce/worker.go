@@ -38,9 +38,10 @@ func (wk *Worker) DoTask(arg *DoTaskArgs, _ *struct{}) error {
 	nc := wk.concurrent
 	wk.Unlock()
 
-	if nc > 2 {
-		// should never be more than 1, but allow some slack.
-		log.Fatal("Worker.DoTask: more than one DoTask in parallel\n")
+	if nc > 1 {
+		// schedule() should never issue more than one RPC at a
+		// time to a given worker.
+		log.Fatal("Worker.DoTask: more than one DoTask sent concurrently to a single worker\n")
 	}
 
 	switch arg.Phase {

@@ -100,7 +100,7 @@ func Distributed(jobName string, files []string, nreduce int, master string) (mr
 					mr.Unlock()
 				}
 			}()
-			mr.schedule(phase, ch)
+			schedule(mr.jobName, mr.files, mr.nReduce, phase, ch)
 		},
 		func() {
 			mr.stats = mr.killWorkers()
