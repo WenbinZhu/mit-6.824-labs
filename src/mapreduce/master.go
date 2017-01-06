@@ -18,7 +18,7 @@ type Master struct {
 	doneChannel chan bool
 
 	// protected by the mutex
-	newCond *sync.Cond // pulsed when a new worker added to workers[]
+	newCond *sync.Cond // signals when Register() adds to workers[]
 	workers []string   // each worker's UNIX-domain socket name -- its RPC address
 
 	// Per-task information
@@ -38,7 +38,10 @@ func (mr *Master) Register(args *RegisterArgs, _ *struct{}) error {
 	defer mr.Unlock()
 	debug("Register: worker %s\n", args.Worker)
 	mr.workers = append(mr.workers, args.Worker)
+
+	// tell forwardRegistrations() that there's a new workers[] entry.
 	mr.newCond.Broadcast()
+
 	return nil
 }
 
@@ -76,6 +79,27 @@ func Sequential(jobName string, files []string, nreduce int,
 	return
 }
 
+// helper function that sends information about all existing
+// and newly registered workers to channel ch. schedule()
+// reads ch to learn about workers.
+func (mr *Master) forwardRegistrations(ch chan string) {
+	i := 0
+	for {
+		mr.Lock()
+		if len(mr.workers) > i {
+			// there's a worker that we haven't told schedule() about.
+			w := mr.workers[i]
+			go func() { ch <- w }()
+			i = i + 1
+		} else {
+			// wait for Register() to add an entry to workers[]
+			// in response to an RPC from a new worker.
+			mr.newCond.Wait()
+		}
+		mr.Unlock()
+	}
+}
+
 // Distributed schedules map and reduce tasks on workers that register with the
 // master over RPC.
 func Distributed(jobName string, files []string, nreduce int, master string) (mr *Master) {
@@ -86,20 +110,7 @@ func Distributed(jobName string, files []string, nreduce int, master string) (mr
 			// send schedule() existing and new registrations
 			// on this channel.
 			ch := make(chan string)
-			go func() {
-				i := 0
-				for {
-					mr.Lock()
-					if len(mr.workers) > i {
-						w := mr.workers[i]
-						go func() { ch <- w }()
-						i = i + 1
-					} else {
-						mr.newCond.Wait()
-					}
-					mr.Unlock()
-				}
-			}()
+			go mr.forwardRegistrations(ch)
 			schedule(mr.jobName, mr.files, mr.nReduce, phase, ch)
 		},
 		func() {
