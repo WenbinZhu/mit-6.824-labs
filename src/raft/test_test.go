@@ -19,7 +19,7 @@ import "sync"
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
 
-func TestInitialElection(t *testing.T) {
+func TestInitialElection2A(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -40,7 +40,7 @@ func TestInitialElection(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestReElection(t *testing.T) {
+func TestReElection2A(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -76,7 +76,7 @@ func TestReElection(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestBasicAgree(t *testing.T) {
+func TestBasicAgree2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -99,7 +99,7 @@ func TestBasicAgree(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestFailAgree(t *testing.T) {
+func TestFailAgree2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -130,7 +130,7 @@ func TestFailAgree(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestFailNoAgree(t *testing.T) {
+func TestFailNoAgree2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -182,7 +182,7 @@ func TestFailNoAgree(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestConcurrentStarts(t *testing.T) {
+func TestConcurrentStarts2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -283,7 +283,7 @@ loop:
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestRejoin(t *testing.T) {
+func TestRejoin2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -321,7 +321,7 @@ func TestRejoin(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestBackup(t *testing.T) {
+func TestBackup2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -393,7 +393,7 @@ func TestBackup(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestCount(t *testing.T) {
+func TestCount2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -503,7 +503,7 @@ loop:
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestPersist1(t *testing.T) {
+func TestPersist12C(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -549,7 +549,7 @@ func TestPersist1(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestPersist2(t *testing.T) {
+func TestPersist22C(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -595,7 +595,7 @@ func TestPersist2(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestPersist3(t *testing.T) {
+func TestPersist32C(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -635,7 +635,7 @@ func TestPersist3(t *testing.T) {
 // The leader in a new term may try to finish replicating log entries that
 // haven't been committed yet.
 //
-func TestFigure8(t *testing.T) {
+func TestFigure82C(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
@@ -691,7 +691,7 @@ func TestFigure8(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestUnreliableAgree(t *testing.T) {
+func TestUnreliableAgree2C(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, true)
 	defer cfg.cleanup()
@@ -720,7 +720,7 @@ func TestUnreliableAgree(t *testing.T) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestFigure8Unreliable(t *testing.T) {
+func TestFigure8Unreliable2C(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, true)
 	defer cfg.cleanup()
@@ -920,10 +920,10 @@ func internalChurn(t *testing.T, unreliable bool) {
 	fmt.Printf("  ... Passed\n")
 }
 
-func TestReliableChurn(t *testing.T) {
+func TestReliableChurn2C(t *testing.T) {
 	internalChurn(t, false)
 }
 
-func TestUnreliableChurn(t *testing.T) {
+func TestUnreliableChurn2C(t *testing.T) {
 	internalChurn(t, true)
 }

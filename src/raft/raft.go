@@ -41,10 +41,10 @@ type ApplyMsg struct {
 // A Go object implementing a single Raft peer.
 //
 type Raft struct {
-	mu        sync.Mutex
-	peers     []*labrpc.ClientEnd
-	persister *Persister
-	me        int // index into peers[]
+	mu        sync.Mutex          // Lock to protect shared access to peer's state
+	peers     []*labrpc.ClientEnd // RPC end points of peers
+	persister *Persister          // Object to persist state a peer's state
+	me        int                 // index into peers[]
 
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
@@ -88,6 +88,9 @@ func (rf *Raft) readPersist(data []byte) {
 	// d := gob.NewDecoder(r)
 	// d.Decode(&rf.xxx)
 	// d.Decode(&rf.yyy)
+	if data == nil || len(data) < 1 { // bootstrap without any state?
+		return
+	}
 }
 
 

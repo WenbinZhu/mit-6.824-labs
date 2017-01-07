@@ -89,7 +89,7 @@ func (mr *Master) forwardRegistrations(ch chan string) {
 		if len(mr.workers) > i {
 			// there's a worker that we haven't told schedule() about.
 			w := mr.workers[i]
-			go func() { ch <- w }()
+			go func() { ch <- w }() // send without holding the lock.
 			i = i + 1
 		} else {
 			// wait for Register() to add an entry to workers[]
@@ -107,8 +107,6 @@ func Distributed(jobName string, files []string, nreduce int, master string) (mr
 	mr.startRPCServer()
 	go mr.run(jobName, files, nreduce,
 		func(phase jobPhase) {
-			// send schedule() existing and new registrations
-			// on this channel.
 			ch := make(chan string)
 			go mr.forwardRegistrations(ch)
 			schedule(mr.jobName, mr.files, mr.nReduce, phase, ch)
