@@ -360,7 +360,7 @@ func (rf *Raft) sendAllAppendEntries() {
 
 	for i := range rf.peers {
 		if i != rf.me && rf.status == Leader {
-			rf.sendAppendEntries(i, args, &AppendEntriesReply{})
+			go rf.sendAppendEntries(i, args, &AppendEntriesReply{})
 		}
 	}
 }
@@ -406,7 +406,7 @@ func (rf *Raft) runServer() {
 		switch rf.status {
 		case Leader:
 			//DPrintf("Server %d, Leader, term %d", rf.me, rf.currentTerm)
-			go rf.sendAllAppendEntries()
+			rf.sendAllAppendEntries()
 			time.Sleep(time.Millisecond * 120)
 
 		case Follower:
@@ -423,7 +423,7 @@ func (rf *Raft) runServer() {
 			rf.votedFor = rf.me
 			rf.voteCount = 1
 			rf.mu.Unlock()
-			go rf.sendAllRequestVotes()
+			rf.sendAllRequestVotes()
 
 			select {
 			case <-time.After(time.Millisecond * time.Duration(rand.Intn(200) + 300)):
