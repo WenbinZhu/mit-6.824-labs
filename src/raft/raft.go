@@ -327,8 +327,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 	if term := rf.logs[args.PrevLogIndex].Term; args.PrevLogIndex >= 0 && term != args.PrevLogTerm {
-		for reply.nextTryIndex = args.PrevLogIndex;
-			reply.nextTryIndex > 0 && rf.logs[reply.nextTryIndex].Term != term;
+		for reply.nextTryIndex = args.PrevLogIndex - 1;
+			reply.nextTryIndex >= 0 && rf.logs[reply.nextTryIndex].Term == term;
 			reply.nextTryIndex-- {}
 
 		reply.nextTryIndex++
@@ -394,14 +394,16 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		return ok
 	}
 	if reply.Success {
-		//TODO: part 2B
+		rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
+		rf.nextIndex[server] = rf.matchIndex[server] + 1
+	} else {
+		rf.nextIndex[server] = reply.nextTryIndex
 	}
 
 	return ok
 }
 
 func (rf *Raft) sendAllAppendEntries() {
-	//TODO: part 2B
 	rf.mu.Lock()
 	args := &AppendEntriesArgs{}
 	args.Term = rf.currentTerm
