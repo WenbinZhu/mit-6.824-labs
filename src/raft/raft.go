@@ -109,9 +109,6 @@ func (rf *Raft) getLastIndex() int {
 }
 
 func (rf *Raft) getLastTerm() int {
-	if len(rf.logs) == 0 {
-		return 0
-	}
 	return rf.logs[len(rf.logs) - 1].Term
 }
 
@@ -326,9 +323,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.nextTryIndex = rf.getLastIndex() + 1
 		return
 	}
-	if term := rf.logs[args.PrevLogIndex].Term; args.PrevLogIndex >= 0 && term != args.PrevLogTerm {
+
+	// Follower's log conflict with leader's
+	if args.PrevLogIndex > 0 && rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+		term := rf.logs[args.PrevLogIndex].Term
+
 		for reply.nextTryIndex = args.PrevLogIndex - 1;
-			reply.nextTryIndex >= 0 && rf.logs[reply.nextTryIndex].Term == term;
+			reply.nextTryIndex > 0 && rf.logs[reply.nextTryIndex].Term == term;
 			reply.nextTryIndex-- {}
 
 		reply.nextTryIndex++
@@ -338,7 +339,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		var restLogs []LogEntry
 		rf.logs, restLogs = rf.logs[:args.PrevLogIndex + 1], rf.logs[args.PrevLogIndex + 1 :]
 
-		if rf.hasConflictLogs(restLogs, args.Entries) || len(restLogs) < len(args.Entries){
+		if rf.hasConflictLogs(restLogs, args.Entries) || len(restLogs) < len(args.Entries) {
 			rf.logs = append(rf.logs, args.Entries...)
 		} else {
 			rf.logs = append(rf.logs, restLogs...)
@@ -346,17 +347,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		reply.Success = true
 		reply.nextTryIndex = args.PrevLogIndex
-	}
 
-	// Update follower's commitIndex
-	if args.LeaderCommit > rf.commitIndex {
-		if args.LeaderCommit <= rf.getLastIndex() {
-			rf.commitIndex = args.LeaderCommit
-		} else {
-			rf.commitIndex = rf.getLastIndex()
+		// Update follower's commitIndex if no conflict
+		if args.LeaderCommit > rf.commitIndex {
+			if args.LeaderCommit <= rf.getLastIndex() {
+				rf.commitIndex = args.LeaderCommit
+			} else {
+				rf.commitIndex = rf.getLastIndex()
+			}
+
+			go rf.commitLogs()
 		}
-
-		go rf.commitLogs()
 	}
 
 	return
@@ -381,10 +382,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if !ok {
-		return ok
-	}
-	if rf.status != Leader || args.Term != rf.currentTerm {
+	if !ok || rf.status != Leader || args.Term != rf.currentTerm {
 		return ok
 	}
 	if reply.Term > rf.currentTerm {
@@ -400,18 +398,48 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		rf.nextIndex[server] = reply.nextTryIndex
 	}
 
+	// If there exists an N such that N > commitIndex, a majority of
+	// matchIndex[i] >= N, and log[N].term == currentTerm: set commitIndex = N
+	for N := rf.getLastIndex(); N > rf.commitIndex; N-- {
+		count := 1
+
+		if rf.logs[N].Term == rf.currentTerm {
+			for i := range rf.peers {
+				if rf.matchIndex[i] >= N {
+					count++
+				}
+			}
+		}
+
+		if count > len(rf.peers) / 2 {
+			rf.commitIndex = N
+			go rf.commitLogs()
+			break
+		}
+	}
+
 	return ok
 }
 
 func (rf *Raft) sendAllAppendEntries() {
 	rf.mu.Lock()
-	args := &AppendEntriesArgs{}
-	args.Term = rf.currentTerm
-	args.LeaderId = rf.me
-	rf.mu.Unlock()
+	defer rf.mu.Unlock()
 
 	for i := range rf.peers {
 		if i != rf.me && rf.status == Leader {
+			args := &AppendEntriesArgs{}
+			args.Term = rf.currentTerm
+			args.LeaderId = rf.me
+			args.PrevLogIndex = rf.nextIndex[i] - 1
+			args.LeaderCommit = rf.commitIndex
+
+			if args.PrevLogIndex >= 0 {
+				args.PrevLogTerm = rf.logs[args.PrevLogIndex].Term
+			}
+			if rf.nextIndex[i] <= rf.getLastIndex() {
+				args.Entries = rf.logs[rf.nextIndex[i] :]
+			}
+
 			go rf.sendAppendEntries(i, args, &AppendEntriesReply{})
 		}
 	}
@@ -446,8 +474,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	index := -1
-	term := -1
+	index := 0
+	term := 0
 	isLeader := rf.status == Leader
 
 	if isLeader {
@@ -538,13 +566,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.voteCount = 0
 	rf.votedFor = -1
-	rf.commitIndex = -1
-	rf.lastApplied = -1
+	rf.commitIndex = 0
+	rf.lastApplied = 0
 	rf.status = Follower
 	rf.applyCh = applyCh
 	rf.electWin = make(chan bool)
 	rf.granted = make(chan bool)
 	rf.heartbeat = make(chan bool)
+	rf.logs = append(rf.logs, LogEntry{Term: 0})
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
