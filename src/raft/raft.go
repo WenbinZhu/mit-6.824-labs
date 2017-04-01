@@ -17,16 +17,14 @@ package raft
 //   in the same server.
 //
 
-import "sync"
 import (
+	"sync"
 	"labrpc"
 	"time"
 	"math/rand"
+	//"bytes"
+	//"encoding/gob"
 )
-
-// import "bytes"
-// import "encoding/gob"
-
 
 
 //
@@ -142,8 +140,6 @@ func (rf *Raft) readPersist(data []byte) {
 		return
 	}
 }
-
-
 
 
 //
