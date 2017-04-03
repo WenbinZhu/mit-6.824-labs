@@ -24,6 +24,8 @@ import (
 	"math/rand"
 	//"bytes"
 	//"encoding/gob"
+	"bytes"
+	"encoding/gob"
 )
 
 
@@ -117,13 +119,13 @@ func (rf *Raft) getLastTerm() int {
 //
 func (rf *Raft) persist() {
 	// Your code here (2C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := gob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+	w := new(bytes.Buffer)
+	e := gob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -131,14 +133,17 @@ func (rf *Raft) persist() {
 //
 func (rf *Raft) readPersist(data []byte) {
 	// Your code here (2C).
-	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := gob.NewDecoder(r)
-	// d.Decode(&rf.xxx)
-	// d.Decode(&rf.yyy)
-	if data == nil || len(data) < 1 { // bootstrap without any state?
+
+	// bootstrap without any state
+	if data == nil || len(data) < 1 {
 		return
 	}
+
+	r := bytes.NewBuffer(data)
+	d := gob.NewDecoder(r)
+	d.Decode(&rf.currentTerm)
+	d.Decode(&rf.votedFor)
+	d.Decode(&rf.logs)
 }
 
 
@@ -186,6 +191,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	// Do not grant vote if term < currentTerm
 	if args.Term < rf.currentTerm {
@@ -266,6 +272,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		rf.currentTerm = reply.Term
 		rf.status = Follower
 		rf.votedFor = -1
+		rf.persist()
 		return ok
 	}
 	if reply.VoteGranted {
@@ -297,6 +304,7 @@ func (rf *Raft) sendAllRequestVotes() {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
+	defer rf.persist()
 	defer rf.mu.Unlock()
 
 	reply.Success = false
@@ -385,6 +393,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		rf.currentTerm = reply.Term
 		rf.status = Follower
 		rf.votedFor = -1
+		rf.persist()
 		return ok
 	}
 	if reply.Success {
@@ -478,6 +487,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		index = rf.getLastIndex() + 1
 		term = rf.currentTerm
 		rf.logs = append(rf.logs, LogEntry{term, command})
+		rf.persist()
 	}
 
 	return index, term, isLeader
@@ -515,6 +525,7 @@ func (rf *Raft) runServer() {
 			rf.mu.Lock()
 			rf.currentTerm++
 			rf.votedFor = rf.me
+			rf.persist()
 			rf.voteCount = 1
 			rf.mu.Unlock()
 			rf.sendAllRequestVotes()
@@ -573,6 +584,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
+	rf.persist()
 
 	go rf.runServer()
 
