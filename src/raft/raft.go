@@ -22,8 +22,6 @@ import (
 	"labrpc"
 	"time"
 	"math/rand"
-	//"bytes"
-	//"encoding/gob"
 	"bytes"
 	"encoding/gob"
 )
@@ -90,18 +88,11 @@ const (
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
-	var term int
-	var isleader bool
-
 	// Your code here (2A).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	term = rf.currentTerm
-	isleader = rf.status == Leader
-
-	return term, isleader
+	return rf.currentTerm, rf.status == Leader
 }
 
 func (rf *Raft) getLastIndex() int {
@@ -133,7 +124,6 @@ func (rf *Raft) persist() {
 //
 func (rf *Raft) readPersist(data []byte) {
 	// Your code here (2C).
-
 	// bootstrap without any state
 	if data == nil || len(data) < 1 {
 		return
@@ -210,14 +200,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.Term = rf.currentTerm
 
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) &&
-		rf.isUptoDate(args.LastLogIndex, args.LastLogTerm) {
+		rf.isUpToDate(args.LastLogIndex, args.LastLogTerm) {
 		rf.granted <- true
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
 	}
 }
 
-func (rf *Raft) isUptoDate(cIndex int, cTerm int) bool {
+func (rf *Raft) isUpToDate(cIndex int, cTerm int) bool {
 	term, index := rf.getLastTerm(), rf.getLastIndex()
 
 	if cTerm != term {
@@ -338,11 +328,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		reply.nextTryIndex++
 	} else {
-		// If an existing entry conflicts with a new one (same index but
-		// different terms), delete the existing entry and all that follow it
 		var restLogs []LogEntry
 		rf.logs, restLogs = rf.logs[:args.PrevLogIndex + 1], rf.logs[args.PrevLogIndex + 1 :]
 
+		// If an existing entry conflicts with a new one (same index but
+		// different terms), delete the existing entry and all that follow it
 		if rf.hasConflictLogs(restLogs, args.Entries) || len(restLogs) < len(args.Entries) {
 			rf.logs = append(rf.logs, args.Entries...)
 		} else {
