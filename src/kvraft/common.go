@@ -12,10 +12,12 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	Key   string
 	Value string
-	Op    string // "Put" or "Append"
+	Type  string // "Put" or "Append"
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	Cid   int64
+	Seq   int
 }
 
 type PutAppendReply struct {
