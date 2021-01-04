@@ -4,7 +4,7 @@
 
 Course website: https://pdos.csail.mit.edu/6.824/schedule.html
 
-- [ ] Lab 1: MapReduce
+- [x] Lab 1: MapReduce
 
 - [ ] Lab 2: Raft Consensus Algorithm
 
