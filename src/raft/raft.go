@@ -102,7 +102,8 @@ type Raft struct {
 func (rf *Raft) GetState() (int, bool) {
 	// Your code here (2A).
 	rf.mu.Lock()
-	rf.mu.Unlock()
+	defer rf.mu.Unlock()
+
 	return rf.currentTerm, rf.state == Leader
 }
 
@@ -192,6 +193,7 @@ type AppendEntriesReply struct {
 
 //
 // get the index of the last log entry.
+// lock must be held before calling this.
 //
 func (rf *Raft) getLastIndex() int {
 	return len(rf.logs) - 1
@@ -199,6 +201,7 @@ func (rf *Raft) getLastIndex() int {
 
 //
 // get the term of the last log entry.
+// lock must be held before calling this.
 //
 func (rf *Raft) getLastTerm() int {
 	return rf.logs[rf.getLastIndex()].Term
@@ -209,6 +212,16 @@ func (rf *Raft) getLastTerm() int {
 //
 func (rf *Raft) getElectionTimeout() time.Duration {
 	return time.Duration(360 + rand.Intn(240))
+}
+
+//
+// send value to an un-buffered channel without blocking
+//
+func (rf *Raft) sendToChannel(ch chan bool, value bool) {
+	select {
+	case ch <- value:
+	default:
+	}
 }
 
 //
@@ -223,7 +236,7 @@ func (rf *Raft) stepDownToFollower(term int) {
 	// step down if not follower, this check is needed
 	// to prevent race where state is already follower
 	if state != Follower {
-		rf.stepDownCh <- true
+		rf.sendToChannel(rf.stepDownCh, true)
 	}
 }
 
@@ -266,7 +279,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.isLogUpToDate(args.LastLogIndex, args.LastLogTerm) {
 		reply.VoteGranted = true
 		rf.votedFor = args.CandidateId
-		rf.grantVoteCh <- true
+		rf.sendToChannel(rf.grantVoteCh, true)
 	}
 }
 
@@ -321,8 +334,8 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	if reply.VoteGranted {
 		rf.voteCount++
 		// only send once when vote count just reaches majority
-		if rf.voteCount == len(rf.peers)/2+1 {
-			rf.winElectCh <- true
+		if rf.voteCount == len(rf.peers) / 2 + 1 {
+			rf.sendToChannel(rf.winElectCh, true)
 		}
 	}
 }
@@ -351,6 +364,23 @@ func (rf *Raft) broadcastRequestVote() {
 }
 
 //
+// apply the committed logs.
+//
+func (rf *Raft) applyLogs() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	for i := rf.lastApplied + 1; i <= rf.commitIndex; i++ {
+		rf.applyCh <- ApplyMsg{
+			CommandValid: true,
+			Command: rf.logs[i].Command,
+			CommandIndex: i,
+		}
+		rf.lastApplied = i
+	}
+}
+
+//
 // AppendEntries RPC handler.
 //
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -369,13 +399,53 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.stepDownToFollower(args.Term)
 	}
 
-	rf.heartbeatCh <- true
+	lastIndex := rf.getLastIndex()
+	rf.sendToChannel(rf.heartbeatCh, true)
 
 	reply.Term = rf.currentTerm
+	reply.Success = false
 	reply.ConflictIndex = -1
 	reply.ConflictTerm = -1
+
+	// follower log is shorter than leader
+	if args.PrevLogIndex > lastIndex {
+		reply.ConflictIndex = lastIndex + 1
+		return
+	}
+
+	// log consistency check fails, i.e. different term at prevLogIndex
+	if cfTerm := rf.logs[args.PrevLogIndex].Term; cfTerm != args.PrevLogTerm {
+		reply.ConflictTerm = cfTerm
+		for i := args.PrevLogIndex; i >= 0 && rf.logs[i].Term == cfTerm; i-- {
+			reply.ConflictIndex = i
+		}
+		reply.Success = false
+		return
+	}
+
+	// only truncate log if an existing entry conflicts with a new one
+	i, j := args.PrevLogIndex + 1, 0
+	for ; i < lastIndex + 1 && j < len(args.Entries); i, j = i + 1, j + 1 {
+		if rf.logs[i].Term != args.Entries[j].Term {
+			break
+		}
+	}
+	rf.logs = rf.logs[:i]
+	args.Entries = args.Entries[j:]
+	rf.logs = append(rf.logs, args.Entries...)
+
 	reply.Success = true
 
+	// update commit index to min(leaderCommit, lastIndex)
+	if args.LeaderCommit > rf.commitIndex {
+		lastIndex = rf.getLastIndex()
+		if args.LeaderCommit < lastIndex {
+			rf.commitIndex = args.LeaderCommit
+		} else {
+			rf.commitIndex = lastIndex
+		}
+		go rf.applyLogs()
+	}
 }
 
 //
@@ -399,6 +469,53 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		rf.stepDownToFollower(args.Term)
 		return
 	}
+
+	// update matchIndex and nextIndex of the follower
+	if reply.Success {
+		// match index should not regress in case of stale rpc response
+		newMatchIndex := args.PrevLogIndex + len(args.Entries)
+		if newMatchIndex > rf.matchIndex[server] {
+			rf.matchIndex[server] = newMatchIndex
+		}
+		rf.nextIndex[server] = rf.matchIndex[server] + 1
+	} else if reply.ConflictTerm < 0 {
+		// follower's log shorter than leader's
+		rf.nextIndex[server] = reply.ConflictIndex
+		rf.matchIndex[server] = rf.nextIndex[server] - 1
+	} else {
+		// try to find the conflictTerm in log
+		newNextIndex := rf.getLastIndex()
+		for ; newNextIndex >= 0; newNextIndex-- {
+			if rf.logs[newNextIndex].Term == reply.ConflictTerm {
+				break
+			}
+		}
+		// if not found, set nextIndex to conflictIndex
+		if newNextIndex < 0 {
+			rf.nextIndex[server] = reply.ConflictIndex
+		} else {
+			rf.nextIndex[server] = newNextIndex
+		}
+		rf.matchIndex[server] = rf.nextIndex[server] - 1
+	}
+
+	// if there exists an N such that N > commitIndex, a majority of
+	// matchIndex[i] >= N, and log[N].term == currentTerm, set commitIndex = N
+	for n := rf.getLastIndex(); n >= rf.commitIndex; n-- {
+		count := 1
+		if rf.logs[n].Term == rf.currentTerm {
+			for i := 0; i < len(rf.peers); i++ {
+				if i != rf.me && rf.matchIndex[i] >= n {
+					count++
+				}
+			}
+		}
+		if count > len(rf.peers) / 2 {
+			rf.commitIndex = n
+			go rf.applyLogs()
+			break
+		}
+	}
 }
 
 //
@@ -415,10 +532,13 @@ func (rf *Raft) broadcastAppendEntries() {
 			args := AppendEntriesArgs{}
 			args.Term = rf.currentTerm
 			args.LeaderId = rf.me
-			args.PrevLogIndex = -1
-			args.PrevLogTerm = -1
+			args.PrevLogIndex = rf.nextIndex[server] - 1
+			args.PrevLogTerm = rf.logs[args.PrevLogIndex].Term
 			args.LeaderCommit = rf.commitIndex
-			args.Entries = []LogEntry{}
+			entries := rf.logs[rf.nextIndex[server]:]
+			args.Entries = make([]LogEntry, len(entries))
+			// make a deep copy of the entries to send
+			copy(args.Entries, entries)
 			go rf.sendAppendEntries(server, &args, &AppendEntriesReply{})
 		}
 	}
@@ -537,7 +657,9 @@ func (rf *Raft) resetChannels() {
 //
 func (rf *Raft) runServer() {
 	for !rf.killed() {
+		rf.mu.Lock()
 		state := rf.state
+		rf.mu.Unlock()
 		switch state {
 		case Leader:
 			select {
