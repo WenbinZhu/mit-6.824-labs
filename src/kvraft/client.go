@@ -1,13 +1,18 @@
 package kvraft
 
-import "../labrpc"
+import (
+	"../labrpc"
+	"sync/atomic"
+)
 import "crypto/rand"
 import "math/big"
-
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+	leaderId  int32
+	clientId  int64
+	requestId int64
 }
 
 func nrand() int64 {
@@ -21,6 +26,9 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// You'll have to add code here.
+	ck.leaderId = 0
+	ck.clientId = nrand()
+	ck.requestId = 0
 	return ck
 }
 
@@ -37,9 +45,33 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) Get(key string) string {
-
 	// You will have to modify this function.
-	return ""
+	reqId := atomic.AddInt64(&ck.requestId, 1)
+	leader := atomic.LoadInt32(&ck.leaderId)
+
+	args := GetArgs{
+		Key:       key,
+		ClientId:  ck.clientId,
+		RequestId: reqId,
+	}
+
+	value := ""
+	server := leader
+	for ; ; server = (server + 1) % int32(len(ck.servers)) {
+		reply := GetReply{}
+		ok := ck.servers[server].Call("KVServer.Get", &args, &reply)
+
+		if ok && reply.Err != ErrWrongLeader {
+			if reply.Err == OK {
+				value = reply.Value
+			}
+			break
+		}
+	}
+
+	atomic.StoreInt32(&ck.leaderId, server)
+
+	return value
 }
 
 //
@@ -54,6 +86,28 @@ func (ck *Clerk) Get(key string) string {
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	reqId := atomic.AddInt64(&ck.requestId, 1)
+	leader := atomic.LoadInt32(&ck.leaderId)
+
+	args := PutAppendArgs{
+		Key:       key,
+		Value:     value,
+		Op:        op,
+		ClientId:  ck.clientId,
+		RequestId: reqId,
+	}
+
+	server := leader
+	for ; ; server = (server + 1) % int32(len(ck.servers)) {
+		reply := PutAppendReply{}
+		ok := ck.servers[server].Call("KVServer.PutAppend", &args, &reply)
+
+		if ok && reply.Err != ErrWrongLeader {
+			break
+		}
+	}
+
+	atomic.StoreInt32(&ck.leaderId, server)
 }
 
 func (ck *Clerk) Put(key string, value string) {
